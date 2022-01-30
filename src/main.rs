@@ -1,8 +1,6 @@
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-
-
 #[derive(Clone, Copy)]
 enum State {
     Fair,
@@ -16,12 +14,10 @@ impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             State::Fair => write!(f, "F"),
-            State::Loaded => write!(f, "L")
+            State::Loaded => write!(f, "L"),
         }
     }
 }
-
-
 
 struct TransitionProbability {
     matrix: [[f64; 2]; 2],
@@ -34,15 +30,18 @@ impl Index<(State, State)> for TransitionProbability {
     fn index(&self, index: (State, State)) -> &Self::Output {
         let (from, to) = index;
 
-        let i = match from { State::Fair => 0, State::Loaded => 1 };
-        let j = match to   { State::Fair => 0, State::Loaded => 1 };
+        let i = match from {
+            State::Fair => 0,
+            State::Loaded => 1,
+        };
+        let j = match to {
+            State::Fair => 0,
+            State::Loaded => 1,
+        };
 
         &self.matrix[i][j]
     }
-
 }
-
-
 
 struct EmissionProbability {
     fair: [f64; 7],
@@ -61,15 +60,13 @@ impl Index<State> for EmissionProbability {
     }
 }
 
-
-
 struct ViterbiGraphNode {
     back_ref: Option<State>, // back-reference to the most probable previous state
     prob: f64,               // probability of the current state
 }
 
 struct ViterbiGraph {
-    graph: [Vec<ViterbiGraphNode>; 2]
+    graph: [Vec<ViterbiGraphNode>; 2],
 }
 
 // Indexing again, same as before
@@ -96,18 +93,16 @@ impl IndexMut<State> for ViterbiGraph {
 
 impl ViterbiGraph {
     fn new() -> Self {
-        Self { graph: [Vec::new(), Vec::new()] } 
-   }
+        Self {
+            graph: [Vec::new(), Vec::new()],
+        }
+    }
 }
-
-
 
 struct InitialProbabilities {
     fair: f64,
     loaded: f64,
 }
-
-
 
 struct HiddenMarkovModel {
     transition_p: TransitionProbability,
@@ -115,75 +110,75 @@ struct HiddenMarkovModel {
 }
 
 impl HiddenMarkovModel {
-
     // This is the important code:
-    fn find_most_probable_path(&self, observations: Vec<u8>, initial_p: InitialProbabilities) -> Vec<State> {
+    fn find_most_probable_path(
+        &self,
+        observations: Vec<u8>,
+        initial_p: InitialProbabilities,
+    ) -> Vec<State> {
         use State::*;
 
         let mut graph = ViterbiGraph::new();
 
         // initialize nodes for the first observation
         // using the provided initial state probabilities
-        
-        graph[Fair].push(
-            ViterbiGraphNode {
-                back_ref: None,
-                prob: initial_p.fair * self.emission_p[Fair][observations[0] as usize] 
-            }
-        );
 
-        graph[Loaded].push( 
-            ViterbiGraphNode {
-                back_ref: None,
-                prob: initial_p.loaded * self.emission_p[Fair][observations[0] as usize] 
-            }
-        );
+        graph[Fair].push(ViterbiGraphNode {
+            back_ref: None,
+            prob: initial_p.fair * self.emission_p[Fair][observations[0] as usize],
+        });
+
+        graph[Loaded].push(ViterbiGraphNode {
+            back_ref: None,
+            prob: initial_p.loaded * self.emission_p[Fair][observations[0] as usize],
+        });
 
         // Build the Viterbi Tree iteratively
         for (i, obs) in observations.iter().enumerate().skip(1) {
             for current_state in [Fair, Loaded] {
-                let mut best = ViterbiGraphNode { back_ref: None, prob: 0.0 };
+                let mut best = ViterbiGraphNode {
+                    back_ref: None,
+                    prob: 0.0,
+                };
 
                 for prev_state in [Fair, Loaded] {
-                    let p = graph[current_state][i-1].prob * self.transition_p[(prev_state, current_state)];
+                    let p = graph[current_state][i - 1].prob
+                        * self.transition_p[(prev_state, current_state)];
                     if p > best.prob {
                         best.back_ref = Some(current_state);
                         best.prob = p;
                     }
                 }
 
-                graph[current_state].push( 
-                    ViterbiGraphNode {
-                        back_ref: best.back_ref,
-                        prob: best.prob * self.emission_p[current_state][*obs as usize],
-                    }
-                );
+                graph[current_state].push(ViterbiGraphNode {
+                    back_ref: best.back_ref,
+                    prob: best.prob * self.emission_p[current_state][*obs as usize],
+                });
             }
         }
 
         // traceback
         todo!()
     }
-
 }
-
-
 
 fn main() {
     let rolls = std::fs::read_to_string("data/Casino.txt").unwrap();
 
-    let rolls: Vec<u8> = rolls.chars()
+    let rolls: Vec<u8> = rolls
+        .chars()
         .map(|c| c.to_digit(10).unwrap() as u8)
         .collect();
-    
-    assert_eq!(rolls.len(), 300);
 
+    assert_eq!(rolls.len(), 300);
 
     // The matrix is structured like this:
     //       F  L
     //   F [[_, _],
     //   L  [_, _]]
-    let transition_p = TransitionProbability { matrix: [[0.95, 0.05], [0.1, 0.9]] };
+    let transition_p = TransitionProbability {
+        matrix: [[0.95, 0.05], [0.1, 0.9]],
+    };
 
     // Index = emitted value
     // Arrays start at zero, dice don't, that's why the virst value is 0.0
@@ -192,10 +187,14 @@ fn main() {
         loaded: [0., 0.1, 0.1, 0.1, 0.1, 0.1, 0.5],
     };
 
-    let initial_p = InitialProbabilities { fair: 1., loaded: 0. };
+    let initial_p = InitialProbabilities {
+        fair: 1.,
+        loaded: 0.,
+    };
 
-    let hmm = HiddenMarkovModel { transition_p, emission_p };
+    let hmm = HiddenMarkovModel {
+        transition_p,
+        emission_p,
+    };
     let result = hmm.find_most_probable_path(rolls, initial_p);
-
-
 }
