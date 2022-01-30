@@ -1,7 +1,7 @@
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum State {
     Fair,
     Loaded,
@@ -111,11 +111,13 @@ struct HiddenMarkovModel {
 
 impl HiddenMarkovModel {
     // This is the important code:
+    // It's very messy, sorry
+    // It would probably be better to implement a proper Graph with references, or just use HashMaps
     fn find_most_probable_path(
         &self,
-        observations: Vec<u8>,
+        observations: &[u8],
         initial_p: InitialProbabilities,
-    ) -> Vec<State> {
+    ) -> (Vec<State>, f64) {
         use State::*;
 
         let mut graph = ViterbiGraph::new();
@@ -142,10 +144,10 @@ impl HiddenMarkovModel {
                 };
 
                 for prev_state in [Fair, Loaded] {
-                    let p = graph[current_state][i - 1].prob
+                    let p = graph[prev_state][i - 1].prob
                         * self.transition_p[(prev_state, current_state)];
                     if p > best.prob {
-                        best.back_ref = Some(current_state);
+                        best.back_ref = Some(prev_state);
                         best.prob = p;
                     }
                 }
@@ -157,8 +159,28 @@ impl HiddenMarkovModel {
             }
         }
 
-        // traceback
-        todo!()
+        // Look at the last two nodes, to get a starting point for the traceback
+        let l = graph[Loaded].last().unwrap();
+        let f = graph[Fair].last().unwrap();
+        let start;
+
+        if l.prob > f.prob {
+            start = l;
+        } else {
+            start = f;
+        }
+
+        // Traceback
+        let mut final_path = Vec::new();
+        let mut prev = start;
+        for i in (1..graph[Fair].len() - 2).rev() {
+            final_path.push(prev.back_ref.unwrap());
+            prev = &graph[prev.back_ref.unwrap()][i-1]
+        }
+
+        final_path.reverse();
+
+        (final_path, start.prob)
     }
 }
 
@@ -187,14 +209,12 @@ fn main() {
         loaded: [0., 0.1, 0.1, 0.1, 0.1, 0.1, 0.5],
     };
 
-    let initial_p = InitialProbabilities {
-        fair: 1.,
-        loaded: 0.,
-    };
+    let initial_p = InitialProbabilities { fair: 1., loaded: 0. };
+    let hmm = HiddenMarkovModel { transition_p, emission_p };
+    let (best_path, best_prob) = hmm.find_most_probable_path(&rolls, initial_p);
 
-    let hmm = HiddenMarkovModel {
-        transition_p,
-        emission_p,
-    };
-    let result = hmm.find_most_probable_path(rolls, initial_p);
+    println!("Most probable path with probability {:e}:", best_prob);
+    for s in best_path {
+        print!("{s}");
+    }
 }
