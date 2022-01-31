@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum State {
     Fair,
     Loaded,
@@ -15,47 +16,6 @@ impl fmt::Display for State {
         match self {
             State::Fair => write!(f, "F"),
             State::Loaded => write!(f, "L"),
-        }
-    }
-}
-
-struct TransitionProbability {
-    matrix: [[f64; 2]; 2],
-}
-
-// For indexing like this: transition_prob[(Fair, Loaded)]
-impl Index<(State, State)> for TransitionProbability {
-    type Output = f64;
-
-    fn index(&self, index: (State, State)) -> &Self::Output {
-        let (from, to) = index;
-
-        let i = match from {
-            State::Fair => 0,
-            State::Loaded => 1,
-        };
-        let j = match to {
-            State::Fair => 0,
-            State::Loaded => 1,
-        };
-
-        &self.matrix[i][j]
-    }
-}
-
-struct EmissionProbability {
-    fair: [f64; 7],
-    loaded: [f64; 7],
-}
-
-// For indexing like this: emission_prob[Loaded][6]
-impl Index<State> for EmissionProbability {
-    type Output = [f64; 7];
-
-    fn index(&self, index: State) -> &Self::Output {
-        match index {
-            State::Fair => &self.fair,
-            State::Loaded => &self.loaded,
         }
     }
 }
@@ -105,18 +65,18 @@ struct InitialProbabilities {
 }
 
 struct HiddenMarkovModel {
-    transition_p: TransitionProbability,
-    emission_p: EmissionProbability,
+    transition_p: HashMap<(State, State), f64>,
+    emission_p: HashMap<State, [f64; 7]>,
 }
 
 impl HiddenMarkovModel {
-    // This is the important code:
+    // This is the important code
     // It's very messy, sorry
-    // It would probably be better to implement a proper Graph with references, or just use HashMaps
+    // It would have probably been better to just use HashMaps and Vectors
     fn find_most_probable_path(
         &self,
         observations: &[u8],
-        initial_p: InitialProbabilities,
+        initial_p: InitialProbabilities
     ) -> (Vec<State>, f64) {
         use State::*;
 
@@ -127,12 +87,12 @@ impl HiddenMarkovModel {
 
         graph[Fair].push(ViterbiGraphNode {
             back_ref: None,
-            prob: initial_p.fair * self.emission_p[Fair][observations[0] as usize],
+            prob: initial_p.fair * self.emission_p[&Fair][observations[0] as usize],
         });
 
         graph[Loaded].push(ViterbiGraphNode {
             back_ref: None,
-            prob: initial_p.loaded * self.emission_p[Fair][observations[0] as usize],
+            prob: initial_p.loaded * self.emission_p[&Fair][observations[0] as usize],
         });
 
         // Build the Viterbi Tree iteratively
@@ -145,7 +105,7 @@ impl HiddenMarkovModel {
 
                 for prev_state in [Fair, Loaded] {
                     let p = graph[prev_state][i - 1].prob
-                        * self.transition_p[(prev_state, current_state)];
+                        * self.transition_p[&(prev_state, current_state)];
                     if p > best.prob {
                         best.back_ref = Some(prev_state);
                         best.prob = p;
@@ -154,7 +114,7 @@ impl HiddenMarkovModel {
 
                 graph[current_state].push(ViterbiGraphNode {
                     back_ref: best.back_ref,
-                    prob: best.prob * self.emission_p[current_state][*obs as usize],
+                    prob: best.prob * self.emission_p[&current_state][*obs as usize],
                 });
             }
         }
@@ -173,7 +133,7 @@ impl HiddenMarkovModel {
         // Traceback
         let mut final_path = Vec::new();
         let mut prev = start;
-        for i in (1..graph[Fair].len() - 2).rev() {
+        for i in (1..graph[Fair].len()).rev() {
             final_path.push(prev.back_ref.unwrap());
             prev = &graph[prev.back_ref.unwrap()][i-1]
         }
@@ -198,16 +158,23 @@ fn main() {
     //       F  L
     //   F [[_, _],
     //   L  [_, _]]
-    let transition_p = TransitionProbability {
-        matrix: [[0.95, 0.05], [0.1, 0.9]],
-    };
+    // let transition_p = TransitionProbability {
+    //     matrix: [[0.95, 0.05], [0.1, 0.9]],
+    // };
+    use State::*;
+    let transition_p = HashMap::from([
+        ((Fair,   Fair),   0.95),
+        ((Fair,   Loaded), 0.05),
+        ((Loaded, Loaded), 0.9 ),
+        ((Loaded, Fair),   0.1 ),
+    ]);
 
     // Index = emitted value
     // Arrays start at zero, dice don't, that's why the virst value is 0.0
-    let emission_p = EmissionProbability {
-        fair: [0., 1./6., 1./6., 1./6., 1./6., 1./6., 1./6.],
-        loaded: [0., 0.1, 0.1, 0.1, 0.1, 0.1, 0.5],
-    };
+    let emission_p = HashMap::from([
+        (Fair, [0., 1./6., 1./6., 1./6., 1./6., 1./6., 1./6.]),
+        (Loaded, [0., 0.1, 0.1, 0.1, 0.1, 0.1, 0.5])
+    ]);
 
     let initial_p = InitialProbabilities { fair: 1., loaded: 0. };
     let hmm = HiddenMarkovModel { transition_p, emission_p };
