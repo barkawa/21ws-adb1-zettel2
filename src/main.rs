@@ -38,7 +38,7 @@ impl HiddenMarkovModel {
     // Finds the most probable sequence of states for a given sequence of observations, 
     // using the Viterbi algorithm.
     // Returns a tuple containing the state sequence, and it's probability.
-    fn viterbi(&self, observations: &[u8], initial_p: HashMap<State, f64>) -> (Vec<State>, f64) {
+    fn viterbi(&self, observations: &[u8], initial_p: &HashMap<State, f64>) -> (Vec<State>, f64) {
         // Initialize an empty Viterbi Graph
         let mut graph: HashMap<State, Vec<ViterbiGraphNode>> = HashMap::new();
 
@@ -105,7 +105,7 @@ impl HiddenMarkovModel {
     // using sum instead of max.
     // Returns the graph containing all the probabilities, 
     // and a final probability for the entire observed sequence
-    fn forward(&self, observations: &[u8], initial_p: HashMap<State, f64>) -> (HashMap<State, Vec<f64>>, f64) {
+    fn forward(&self, observations: &[u8], initial_p: &HashMap<State, f64>) -> (HashMap<State, Vec<f64>>, f64) {
         let mut graph: HashMap<State, Vec<f64>> = HashMap::new();
         
         for state in &self.states {
@@ -125,7 +125,7 @@ impl HiddenMarkovModel {
                 let mut sum = 0.0;
 
                 for prev_state in &self.states {
-                    sum += graph[current_state][i-1] * self.transition_p[&(*prev_state, *current_state)];
+                    sum += graph[prev_state][i-1] * self.transition_p[&(*prev_state, *current_state)];
                 }
 
                 graph.get_mut(current_state)
@@ -140,6 +140,69 @@ impl HiddenMarkovModel {
 
         (graph, total_p)
     }
+
+    fn backward(&self, observations: &[u8]) -> HashMap<State, Vec<f64>> {
+        let mut graph: HashMap<State, Vec<f64>> = HashMap::new();
+        
+        for state in &self.states {
+            graph.insert(*state, Vec::with_capacity(observations.len()));
+        }
+
+        // initialize nodes for the last observation
+        // assuming the probability of transitioning to the end state as 1.0
+        for state in &self.states {
+            graph.get_mut(state).unwrap().push(1.0);
+        }
+
+        for (i, obs) in observations.iter().enumerate().rev() {
+            for current_state in &self.states {
+                let mut sum = 0.0;
+
+                let j = observations.len() - (i + 1);
+                for following_state in &self.states {
+                    sum += graph[&following_state][j] 
+                        * self.emission_p[&following_state][obs] 
+                        * self.transition_p[&(*current_state, *following_state)];
+                }
+
+                graph.get_mut(current_state)
+                    .unwrap()
+                    .push(sum);
+            }
+        }
+
+        // reverse the graph
+        for state in &self.states {
+            graph.get_mut(state).unwrap().reverse();
+        }
+
+        graph
+    }
+}
+
+fn plot(v: &[f64]) {
+    use plotters::prelude::*;
+
+    let root_area = SVGBackend::new(
+        "plot.svg", (600, 200)
+        ).into_drawing_area();
+
+    root_area.fill(&WHITE).unwrap();
+
+    let mut context = ChartBuilder::on(&root_area)
+        .margin(20)
+        .set_label_area_size(LabelAreaPosition::Left, 40)
+        .set_label_area_size(LabelAreaPosition::Bottom, 40)
+        .build_cartesian_2d(0..300, 0.0..0.16)
+        .unwrap();
+
+    context
+        .configure_mesh()
+        .disable_mesh()
+        .draw()
+        .unwrap();
+
+    context.draw_series(LineSeries::new((0..).zip(v.iter().map(|x| *x as f64)), &BLACK)).unwrap();
 }
 
 fn main() {
@@ -154,8 +217,11 @@ fn main() {
     assert_eq!(rolls.len(), 300);
 
 
-    // === Define the Hidden Markov Model ===
-
+    //   _  _ __  __ __  __
+    //  | || |  \/  |  \/  |
+    //  | __ | |\/| | |\/| |
+    //  |_||_|_|  |_|_|  |_|
+    
     let transition_p = HashMap::from([
         ((Fair,   Fair),   0.95),
         ((Fair,   Loaded), 0.05),
@@ -179,8 +245,12 @@ fn main() {
     let hmm = HiddenMarkovModel { transition_p, emission_p, states };
 
 
-    // === Run the Viterbi Algorithm, and calculate the TPR and TNR ===
-    let (viterbi_path, path_prob) = &hmm.viterbi(&rolls, initial_p);
+    // __   ___ _           _    _
+    // \ \ / (_) |_ ___ _ _| |__(_)
+    //  \ V /| |  _/ -_) '_| '_ \ |
+    //   \_/ |_|\__\___|_| |_.__/_|
+
+    let (viterbi_path, path_prob) = &hmm.viterbi(&rolls, &initial_p);
 
     println!(" === Viterbi-Algorithm ===");
     println!("Most probable path with probability {:.4e}:", path_prob);
@@ -189,8 +259,14 @@ fn main() {
     }
     println!();
 
-    // TPR (sensitivity), TNR (specificity)
+
+    //  _____ ___ ___   _____ _  _ ___
+    // |_   _| _ \ _ \ |_   _| \| | _ \
+    //   | | |  _/   /   | | | .` |   /
+    //   |_| |_| |_|_\   |_| |_|\_|_|_\
+    //  (sensitivity)   (specificity)
     // calculated using the true states that generated the given observations (Durbin)
+
     let ground_truth: Vec<State> = std::fs::read_to_string("data/ground_truth.txt")
         .unwrap()
         .chars()
@@ -221,4 +297,20 @@ fn main() {
 
     println!("Sensitivitvity: {:.1}%, Specificity: {:.2}%", tpr * 100., tnr * 100.);
 
+
+    //  ___                           _   _____          _                       _
+    // | __|__ _ ___ __ ____ _ _ _ __| | / / _ ) __ _ __| |____ __ ____ _ _ _ __| |
+    // | _/ _ \ '_\ V  V / _` | '_/ _` |/ /| _ \/ _` / _| / /\ V  V / _` | '_/ _` |
+    // |_|\___/_|  \_/\_/\__,_|_| \__,_/_/ |___/\__,_\__|_\_\ \_/\_/\__,_|_| \__,_|
+    
+    let (forward_matrix, total_p) = hmm.forward(&rolls, &initial_p);
+    let backward_matrix = hmm.backward(&rolls);
+
+    let posterior_prob_fair: Vec<f64> = forward_matrix[&Fair]
+        .iter()
+        .zip(backward_matrix[&Fair].iter())
+        .map(|(f, b)| *f * (*b / total_p))
+        .collect();
+    
+    plot(&posterior_prob_fair);
 }
