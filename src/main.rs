@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum State {
     Fair,
     Loaded,
@@ -25,117 +24,85 @@ struct ViterbiGraphNode {
     prob: f64,               // probability of the current state
 }
 
-struct ViterbiGraph {
-    graph: [Vec<ViterbiGraphNode>; 2],
-}
-
-// Indexing again, same as before
-impl Index<State> for ViterbiGraph {
-    type Output = Vec<ViterbiGraphNode>;
-
-    fn index(&self, index: State) -> &Self::Output {
-        match index {
-            State::Fair => &self.graph[0],
-            State::Loaded => &self.graph[1],
-        }
-    }
-}
-
-// This time we also need mutable references
-impl IndexMut<State> for ViterbiGraph {
-    fn index_mut(&mut self, index: State) -> &mut Self::Output {
-        match index {
-            State::Fair => &mut self.graph[0],
-            State::Loaded => &mut self.graph[1],
-        }
-    }
-}
-
-impl ViterbiGraph {
-    fn new() -> Self {
-        Self {
-            graph: [Vec::new(), Vec::new()],
-        }
-    }
-}
-
-struct InitialProbabilities {
-    fair: f64,
-    loaded: f64,
-}
-
 struct HiddenMarkovModel {
+    states: Vec<State>,
     transition_p: HashMap<(State, State), f64>,
     emission_p: HashMap<State, [f64; 7]>,
 }
 
 impl HiddenMarkovModel {
-    // This is the important code
-    // It's very messy, sorry
-    // It would have probably been better to just use HashMaps and Vectors
-    fn find_most_probable_path(
+    fn viterbi(
         &self,
         observations: &[u8],
-        initial_p: InitialProbabilities
+        initial_p: HashMap<State, f64>
     ) -> (Vec<State>, f64) {
         use State::*;
 
-        let mut graph = ViterbiGraph::new();
+        let mut graph: HashMap<State, Vec<ViterbiGraphNode>> = HashMap::new();
+
+        for state in &self.states {
+            graph.insert(*state, Vec::with_capacity(observations.len()));
+        }
 
         // initialize nodes for the first observation
         // using the provided initial state probabilities
+        for (state, prob) in initial_p {
+            graph.get_mut(&state).unwrap().push(ViterbiGraphNode {
+                back_ref: None, 
+                prob: prob * self.emission_p[&state][observations[0] as usize]
+            });
+        }
 
-        graph[Fair].push(ViterbiGraphNode {
-            back_ref: None,
-            prob: initial_p.fair * self.emission_p[&Fair][observations[0] as usize],
-        });
-
-        graph[Loaded].push(ViterbiGraphNode {
-            back_ref: None,
-            prob: initial_p.loaded * self.emission_p[&Fair][observations[0] as usize],
-        });
-
-        // Build the Viterbi Tree iteratively
+        // Build the Viterbi Graph iteratively
         for (i, obs) in observations.iter().enumerate().skip(1) {
-            for current_state in [Fair, Loaded] {
+            for current_state in &self.states {
                 let mut best = ViterbiGraphNode {
                     back_ref: None,
                     prob: 0.0,
                 };
 
-                for prev_state in [Fair, Loaded] {
+                for prev_state in &self.states {
                     let p = graph[prev_state][i - 1].prob
-                        * self.transition_p[&(prev_state, current_state)];
+                        * self.transition_p[&(*prev_state, *current_state)];
                     if p > best.prob {
-                        best.back_ref = Some(prev_state);
+                        best.back_ref = Some(*prev_state);
                         best.prob = p;
                     }
                 }
 
-                graph[current_state].push(ViterbiGraphNode {
+                graph.get_mut(&current_state).unwrap().push(ViterbiGraphNode {
                     back_ref: best.back_ref,
                     prob: best.prob * self.emission_p[&current_state][*obs as usize],
                 });
             }
         }
 
-        // Look at the last two nodes, to get a starting point for the traceback
-        let l = graph[Loaded].last().unwrap();
-        let f = graph[Fair].last().unwrap();
-        let start;
-
-        if l.prob > f.prob {
-            start = l;
-        } else {
-            start = f;
+        // Find the most probable of the last nodes,
+        // to get a starting point for the traceback
+        let mut start = &ViterbiGraphNode { back_ref: None, prob: 0.0 };
+        for state in &self.states {
+            let new_best = graph[state].last().unwrap();
+            if new_best.prob > start.prob {
+                start = new_best;
+            }
         }
+
+        // let best_prob = states.iter()
+        //     .map(|s| graph[s].last().unwrap().prob)
+        //     .reduce(f64::max)
+        //     .unwrap();
+
+        // let start = states.iter()
+        //     .map(|s| graph[s].last().unwrap())
+        //     .find(|s| s.prob == best);
+
 
         // Traceback
         let mut final_path = Vec::new();
         let mut prev = start;
-        for i in (1..graph[Fair].len()).rev() {
+        for i in (1..graph[&self.states[0]].len()).rev() {
             final_path.push(prev.back_ref.unwrap());
-            prev = &graph[prev.back_ref.unwrap()][i-1]
+            prev = &graph[&prev.back_ref.unwrap()][i-1]
         }
 
         final_path.reverse();
@@ -172,13 +139,18 @@ fn main() {
     // Index = emitted value
     // Arrays start at zero, dice don't, that's why the virst value is 0.0
     let emission_p = HashMap::from([
-        (Fair, [0., 1./6., 1./6., 1./6., 1./6., 1./6., 1./6.]),
-        (Loaded, [0., 0.1, 0.1, 0.1, 0.1, 0.1, 0.5])
+        (Fair,   [0., 1./6., 1./6., 1./6., 1./6., 1./6., 1./6.]),
+        (Loaded, [0., 0.1,   0.1,   0.1,   0.1,   0.1,   0.5  ])
     ]);
 
-    let initial_p = InitialProbabilities { fair: 1., loaded: 0. };
-    let hmm = HiddenMarkovModel { transition_p, emission_p };
-    let (best_path, best_prob) = hmm.find_most_probable_path(&rolls, initial_p);
+    let initial_p = HashMap::from([
+        (Fair,   1.0),
+        (Loaded, 0.0)
+    ]);
+
+
+    let hmm = HiddenMarkovModel { transition_p, emission_p, states: vec![Fair, Loaded] };
+    let (best_path, best_prob) = hmm.viterbi(&rolls, initial_p);
 
     println!("Most probable path with probability {:e}:", best_prob);
     for s in best_path {
