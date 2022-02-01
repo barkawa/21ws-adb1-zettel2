@@ -112,16 +112,19 @@ fn main() {
         ((Loaded, Fair),   0.1 ),
     ]);
 
-    // Index = emitted value
-    // Arrays start at zero, dice don't, that's why the first value is 0.0
-    // let emission_p = HashMap::from([
-    //     (Fair,   [0., 1./6., 1./6., 1./6., 1./6., 1./6., 1./6.]),
-    //     (Loaded, [0., 0.1,   0.1,   0.1,   0.1,   0.1,   0.5  ])
-    // ]);
-
     let emission_p = HashMap::from([
-        ( Fair,   HashMap::from([(1, 1./6.), (2, 1./6.), (3, 1./6.), (4, 1./6.), (5, 1./6.), (6, 1./6.)]) ),
-        ( Loaded, HashMap::from([(1, 0.1  ), (2, 0.1  ), (3, 0.1  ), (4, 0.1  ), (5, 0.1  ), (6, 0.5  )]) )
+        ( 
+            Fair, 
+            HashMap::from(
+                [(1, 1./6.), (2, 1./6.), (3, 1./6.), (4, 1./6.), (5, 1./6.), (6, 1./6.)]
+            ) 
+        ),
+        ( 
+            Loaded, 
+            HashMap::from(
+                [(1, 0.1  ), (2, 0.1  ), (3, 0.1  ), (4, 0.1  ), (5, 0.1  ), (6, 0.5  )]
+            ) 
+        )
     ]);
 
     let initial_p = HashMap::from([
